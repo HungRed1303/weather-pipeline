@@ -1,0 +1,39 @@
+# Environment variables
+.env
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Logs
+logs/
+airflow/logs/
+
+# Database
+postgres_data/
+*.db
+
+# Docker
+*.log
+docker-compose.override.yml
+
+# IDE
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Model files
+models/*.pkl
+models/*.joblib
+models/*.h5
+
+# Jupyter / Notebook
+.ipynb_checkpoints/
+
+# Airflow cache
+.airflowignore

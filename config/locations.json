@@ -1,0 +1,25 @@
+{
+  "cities": [
+    {
+      "id": 1,
+      "name": "Huế",
+      "latitude": 16.4637,
+      "longitude": 107.5909,
+      "timezone": "Asia/Ho_Chi_Minh"
+    },
+    {
+      "id": 2,
+      "name": "Đà Nẵng",
+      "latitude": 16.0544,
+      "longitude": 108.2022,
+      "timezone": "Asia/Ho_Chi_Minh"
+    },
+    {
+      "id": 3,
+      "name": "TP.HCM",
+      "latitude": 10.8231,
+      "longitude": 106.6297,
+      "timezone": "Asia/Ho_Chi_Minh"
+    }
+  ]
+}
