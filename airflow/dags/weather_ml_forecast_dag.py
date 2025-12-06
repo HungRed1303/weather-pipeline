@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 import logging
 import sys
 import pandas as pd
+import numpy as np
 
 # Add plugins to path
 sys.path.insert(0, '/opt/airflow/plugins')
@@ -40,6 +41,32 @@ dag = DAG(
     catchup=False,
     tags=['weather', 'ml', 'telegram', 'forecast'],
 )
+
+
+def convert_to_json_serializable(obj):
+    """
+    Convert numpy/pandas types to JSON-serializable Python types
+    """
+    if isinstance(obj, dict):
+        return {convert_to_json_serializable(k): convert_to_json_serializable(v) 
+                for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_to_json_serializable(item) for item in obj]
+    elif isinstance(obj, pd.DataFrame):
+        # Convert DataFrame to dict with JSON-serializable types
+        return obj.to_dict('records')
+    elif isinstance(obj, (np.int64, np.int32, np.int16, np.int8)):
+        return int(obj)
+    elif isinstance(obj, (np.float64, np.float32, np.float16)):
+        return float(obj)
+    elif isinstance(obj, np.bool_):
+        return bool(obj)
+    elif isinstance(obj, pd.Timestamp):
+        return obj.isoformat()
+    elif pd.isna(obj):
+        return None
+    else:
+        return obj
 
 
 def load_training_data(**context):
@@ -75,12 +102,20 @@ def load_training_data(**context):
         
         logger.info(f"Loaded {len(df)} training records")
         
-        # Group by location
+        # Group by location and convert to JSON-serializable format
         training_data = {}
         for location_id in df['location_id'].unique():
             location_df = df[df['location_id'] == location_id].copy()
-            training_data[location_id] = location_df
-            logger.info(f"Location {location_id}: {len(location_df)} records")
+            
+            # Convert location_id from numpy.int64 to Python int
+            location_id_int = int(location_id)
+            
+            # Convert DataFrame to records (list of dicts)
+            training_data[location_id_int] = location_df.to_dict('records')
+            logger.info(f"Location {location_id_int}: {len(location_df)} records")
+        
+        # Convert all numpy types to Python types
+        training_data = convert_to_json_serializable(training_data)
         
         # Push to XCom
         context['task_instance'].xcom_push(key='training_data', value=training_data)
@@ -99,13 +134,24 @@ def train_models(**context):
     logger.info("Training ML models...")
     
     # Pull training data
-    training_data = context['task_instance'].xcom_pull(
+    training_data_records = context['task_instance'].xcom_pull(
         task_ids='load_training_data',
         key='training_data'
     )
     
-    if not training_data:
+    if not training_data_records:
         raise ValueError("No training data available")
+    
+    # Convert records back to DataFrames
+    training_data = {}
+    for location_id, records in training_data_records.items():
+        # Make sure location_id is int
+        location_id = int(location_id)
+        df = pd.DataFrame(records)
+        # Convert timestamp strings back to datetime
+        if 'timestamp' in df.columns:
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+        training_data[location_id] = df
     
     # Train models
     results = train_models_for_all_locations(training_data)
@@ -114,6 +160,9 @@ def train_models(**context):
     error_count = len(results['errors'])
     
     logger.info(f"Training complete: {trained_count} models trained, {error_count} errors")
+    
+    # Convert results to JSON-serializable format
+    results = convert_to_json_serializable(results)
     
     # Push results
     context['task_instance'].xcom_push(key='training_results', value=results)
@@ -145,8 +194,16 @@ def make_predictions(**context):
     
     logger.info(f"Generated predictions for {len(predictions)} locations")
     
+    # Convert predictions to JSON-serializable format
+    predictions_serializable = {}
+    for location_id, pred_df in predictions.items():
+        location_id_int = int(location_id)
+        predictions_serializable[location_id_int] = pred_df.to_dict('records')
+    
+    predictions_serializable = convert_to_json_serializable(predictions_serializable)
+    
     # Push predictions
-    context['task_instance'].xcom_push(key='predictions', value=predictions)
+    context['task_instance'].xcom_push(key='predictions', value=predictions_serializable)
     
     return f"Predictions for {len(predictions)} locations"
 
@@ -155,14 +212,23 @@ def save_predictions_to_db(**context):
     """Task 4: Save predictions to database"""
     logger.info("Saving predictions to database...")
     
-    predictions = context['task_instance'].xcom_pull(
+    predictions_records = context['task_instance'].xcom_pull(
         task_ids='make_predictions',
         key='predictions'
     )
     
-    if not predictions:
+    if not predictions_records:
         logger.warning("No predictions to save")
         return "No data"
+    
+    # Convert records back to DataFrames
+    predictions = {}
+    for location_id, records in predictions_records.items():
+        location_id = int(location_id)
+        pred_df = pd.DataFrame(records)
+        if 'timestamp' in pred_df.columns:
+            pred_df['timestamp'] = pd.to_datetime(pred_df['timestamp'])
+        predictions[location_id] = pred_df
     
     pg_hook = PostgresHook(postgres_conn_id='postgres_default')
     conn = pg_hook.get_conn()
@@ -212,13 +278,22 @@ def send_telegram_forecast(**context):
     logger.info("Sending forecast to Telegram...")
     
     # Pull predictions
-    predictions = context['task_instance'].xcom_pull(
+    predictions_records = context['task_instance'].xcom_pull(
         task_ids='make_predictions',
         key='predictions'
     )
     
-    if not predictions:
+    if not predictions_records:
         raise ValueError("No predictions to send")
+    
+    # Convert records back to DataFrames
+    predictions = {}
+    for location_id, records in predictions_records.items():
+        location_id = int(location_id)
+        pred_df = pd.DataFrame(records)
+        if 'timestamp' in pred_df.columns:
+            pred_df['timestamp'] = pd.to_datetime(pred_df['timestamp'])
+        predictions[location_id] = pred_df
     
     # Initialize bot
     bot = TelegramWeatherBot()
@@ -269,12 +344,15 @@ def log_ml_job(**context):
     task_instance = context['task_instance']
     dag_run = context['dag_run']
     
-    predictions = task_instance.xcom_pull(
+    predictions_records = task_instance.xcom_pull(
         task_ids='make_predictions',
         key='predictions'
     )
     
-    records_processed = sum(len(df) for df in predictions.values()) if predictions else 0
+    records_processed = 0
+    if predictions_records:
+        for records in predictions_records.values():
+            records_processed += len(records)
     
     pg_hook = PostgresHook(postgres_conn_id='postgres_default')
     conn = pg_hook.get_conn()
