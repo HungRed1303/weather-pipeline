@@ -14,10 +14,16 @@ from datetime import datetime, timedelta
 
 try:
     from prophet import Prophet
+    import cmdstanpy
 except ImportError:
-    from fbprophet import Prophet
+    try:
+        from fbprophet import Prophet
+    except ImportError:
+        raise ImportError("Please install prophet: pip install prophet")
 
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+import warnings
+warnings.filterwarnings('ignore')
 
 logger = logging.getLogger(__name__)
 
@@ -48,13 +54,11 @@ class WeatherForecastModel:
             DataFrame with 'ds' and 'y' columns
         """
         prophet_df = pd.DataFrame({
-            'ds': pd.to_datetime(df['timestamp']),
+            'ds': pd.to_datetime(df['timestamp'], format='ISO8601'),
             'y': df['temperature']
         })
         
         # Add additional regressors if available
-        if 'humidity' in df.columns:
-            prophet_df['humidity'] = df['humidity']
         if 'precipitation' in df.columns:
             prophet_df['precipitation'] = df['precipitation']
         if 'hour' in df.columns:
@@ -89,19 +93,24 @@ class WeatherForecastModel:
         if len(prophet_df) < 48:  # Need at least 2 days of data
             raise ValueError(f"Insufficient data for training: {len(prophet_df)} hours")
         
-        # Initialize Prophet model
+        # Initialize Prophet model with error suppression
         model = Prophet(
             yearly_seasonality=True,
             weekly_seasonality=True,
             daily_seasonality=True,
             seasonality_mode='multiplicative',
-            changepoint_prior_scale=0.05,  # Less flexible to avoid overfitting
-            interval_width=0.95  # 95% confidence interval
+            changepoint_prior_scale=0.05,
+            interval_width=0.95
         )
         
+        # Suppress verbose output
+        import logging as prophet_logging
+        prophet_logging.getLogger('prophet').setLevel(prophet_logging.ERROR)
+        prophet_logging.getLogger('cmdstanpy').setLevel(prophet_logging.ERROR)
+        
         # Add additional regressors
-        if 'humidity' in prophet_df.columns:
-            model.add_regressor('humidity')
+        # if 'humidity' in prophet_df.columns:
+        # #     model.add_regressor('humidity')
         if 'precipitation' in prophet_df.columns:
             model.add_regressor('precipitation')
         if 'hour' in prophet_df.columns:
@@ -172,8 +181,8 @@ class WeatherForecastModel:
             # Use reasonable defaults
             future['hour'] = future['ds'].dt.hour
             future['day_of_week'] = future['ds'].dt.dayofweek
-            if 'humidity' in model.extra_regressors:
-                future['humidity'] = 70  # Default humidity
+            # if 'humidity' in model.extra_regressors:
+            #     future['humidity'] = 70  # Default humidity
             if 'precipitation' in model.extra_regressors:
                 future['precipitation'] = 0  # Assume no rain by default
         

@@ -55,9 +55,9 @@ def convert_to_json_serializable(obj):
     elif isinstance(obj, pd.DataFrame):
         # Convert DataFrame to dict with JSON-serializable types
         return obj.to_dict('records')
-    elif isinstance(obj, (np.int64, np.int32, np.int16, np.int8)):
+    elif isinstance(obj, (np.integer, np.int64, np.int32, np.int16, np.int8)):
         return int(obj)
-    elif isinstance(obj, (np.float64, np.float32, np.float16)):
+    elif isinstance(obj, (np.floating, np.float64, np.float32, np.float16)):
         return float(obj)
     elif isinstance(obj, np.bool_):
         return bool(obj)
@@ -77,21 +77,19 @@ def load_training_data(**context):
     conn = pg_hook.get_conn()
     
     try:
-        # Load last 30 days of data for each location
+        # Load all available data (minimum 2 days needed for Prophet)
         query = """
             SELECT 
                 location_id,
                 forecast_timestamp as timestamp,
                 temperature,
                 precipitation,
-                humidity,
                 hour,
                 day_of_week,
                 month,
                 is_weekend
             FROM hourly_weather
-            WHERE forecast_timestamp >= NOW() - INTERVAL '30 days'
-                AND forecast_timestamp < NOW()
+            WHERE forecast_timestamp < NOW()
             ORDER BY location_id, forecast_timestamp
         """
         
@@ -148,9 +146,9 @@ def train_models(**context):
         # Make sure location_id is int
         location_id = int(location_id)
         df = pd.DataFrame(records)
-        # Convert timestamp strings back to datetime
+        # Convert timestamp strings back to datetime with ISO8601 format
         if 'timestamp' in df.columns:
-            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            df['timestamp'] = pd.to_datetime(df['timestamp'], format='ISO8601')
         training_data[location_id] = df
     
     # Train models
@@ -227,7 +225,7 @@ def save_predictions_to_db(**context):
         location_id = int(location_id)
         pred_df = pd.DataFrame(records)
         if 'timestamp' in pred_df.columns:
-            pred_df['timestamp'] = pd.to_datetime(pred_df['timestamp'])
+            pred_df['timestamp'] = pd.to_datetime(pred_df['timestamp'], format='ISO8601')
         predictions[location_id] = pred_df
     
     pg_hook = PostgresHook(postgres_conn_id='postgres_default')
@@ -292,7 +290,7 @@ def send_telegram_forecast(**context):
         location_id = int(location_id)
         pred_df = pd.DataFrame(records)
         if 'timestamp' in pred_df.columns:
-            pred_df['timestamp'] = pd.to_datetime(pred_df['timestamp'])
+            pred_df['timestamp'] = pd.to_datetime(pred_df['timestamp'], format='ISO8601')
         predictions[location_id] = pred_df
     
     # Initialize bot
