@@ -1,0 +1,12 @@
+{
+  "location_id": 2,
+  "location_name": "\u0110\u00e0 N\u1eb5ng",
+  "model_version": "prophet_v1.0",
+  "trained_at": "2025-12-07T11:18:14.412115",
+  "model_params": {
+    "yearly_seasonality": true,
+    "weekly_seasonality": true,
+    "daily_seasonality": true,
+    "seasonality_mode": "multiplicative"
+  }
+}

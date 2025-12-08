@@ -1,0 +1,69 @@
+docker cp airflow/dags/weather_ingestion_dag.py weather_airflow_scheduler:/opt/airflow/dags/
+docker cp airflow/dags/weather_ingestion_dag.py weather_airflow_webserver:/opt/airflow/dags/
+
+
+Connect database từ trên UI
+
+chạy : 
+
+docker cp database/init.sql weather_postgres:/tmp/init.sql
+docker exec -it weather_postgres psql -U airflow -d weather_db -f /tmp/init.sql
+
+gen data để train : 
+INSERT INTO hourly_weather (
+    location_id,
+    forecast_timestamp,
+    temperature,
+    precipitation,
+    weather_code,
+    cloud_cover,
+    hour,
+    day_of_week,
+    month,
+    is_weekend,
+    is_morning,
+    is_afternoon,
+    is_evening,
+    is_raining,
+    rain_intensity,
+    created_at
+)
+SELECT
+    l.location_id,
+    gs AS forecast_timestamp,
+
+    ROUND((20 + RANDOM() * 15)::numeric, 2) AS temperature,
+    ROUND((RANDOM() * 10)::numeric, 2) AS precipitation,
+    (ARRAY[0,1,2,3,45,48,51,61,63,80,95])[FLOOR(RANDOM()*10)+1] AS weather_code,
+    FLOOR(RANDOM()*100)::int AS cloud_cover,
+
+    EXTRACT(HOUR FROM gs)::int AS hour,
+    EXTRACT(DOW FROM gs)::int AS day_of_week,
+    EXTRACT(MONTH FROM gs)::int AS month,
+
+    CASE WHEN EXTRACT(DOW FROM gs) IN (0,6) THEN TRUE ELSE FALSE END AS is_weekend,
+    CASE WHEN EXTRACT(HOUR FROM gs) BETWEEN 5 AND 11 THEN TRUE ELSE FALSE END AS is_morning,
+    CASE WHEN EXTRACT(HOUR FROM gs) BETWEEN 12 AND 17 THEN TRUE ELSE FALSE END AS is_afternoon,
+    CASE WHEN EXTRACT(HOUR FROM gs) BETWEEN 18 AND 23 THEN TRUE ELSE FALSE END AS is_evening,
+
+    CASE WHEN RANDOM() > 0.7 THEN TRUE ELSE FALSE END AS is_raining,
+    CASE 
+        WHEN RANDOM() < 0.3 THEN 'light'
+        WHEN RANDOM() < 0.7 THEN 'moderate'
+        ELSE 'heavy'
+    END AS rain_intensity,
+
+    CURRENT_TIMESTAMP
+
+FROM locations l
+CROSS JOIN generate_series(
+    NOW() - INTERVAL '30 days',
+    NOW(),
+    INTERVAL '1 hour'
+) gs
+
+ON CONFLICT (location_id, forecast_timestamp) DO NOTHING;
+
+docker-compose build --no-cache
+
+docker-compose up -d

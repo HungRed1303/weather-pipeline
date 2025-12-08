@@ -392,5 +392,3 @@ Bây giờ bạn có một hệ thống hoàn chỉnh:
 
 **Chúc bạn demo thành công! 🚀**
 
-docker cp airflow/dags/weather_ingestion_dag.py weather_airflow_scheduler:/opt/airflow/dags/
-docker cp airflow/dags/weather_ingestion_dag.py weather_airflow_webserver:/opt/airflow/dags/
